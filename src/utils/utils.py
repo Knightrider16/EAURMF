@@ -14,7 +14,7 @@ import shutil
 import os
 
 import torch
-
+import pickle as pkl
 
 def set_seed(seed): 
     random.seed(seed)
@@ -24,6 +24,11 @@ def set_seed(seed):
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+
+
+def save_metrics(path="saved/metrics.pkl", metrics=[]):
+    with open(path, 'wb') as f:
+        pkl.dump(metrics, f)
 
 
 def save_checkpoint(state, is_best, checkpoint_path, filename="checkpoint.pt"):

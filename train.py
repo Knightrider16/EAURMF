@@ -179,7 +179,7 @@ def train(args):
     logger.info("==============================================")
 
     # logger.info(model)
-    model.cuda()
+    model.to(device)
 
 
     torch.save(args, os.path.join(args.savedir, "args.pt"))
@@ -196,8 +196,8 @@ def train(args):
         scheduler.load_state_dict(checkpoint["scheduler"])
 
     logger.info("Training..")
-    txt_history = History(len(train_loader.dataset))
-    img_history = History(len(train_loader.dataset))
+    txt_history = None
+    img_history = None
     losses = []
 
     for i_epoch in range(start_epoch, args.max_epochs):
@@ -244,6 +244,8 @@ def train(args):
         preds = [l for sl in preds for l in sl]
         train_acc = accuracy_score(tgts, preds)
 
+        ## testing and validation
+
 
         model.eval()
         metrics = model_eval(i_epoch, val_loader, model, args, criterion)
@@ -283,6 +285,12 @@ def train(args):
 
         losses.append(((np.mean(train_losses), train_acc), (metrics['loss'], metrics['acc']), (test_metrics['loss'], test_metrics['acc'])))
         print("test", losses[0])
+
+        save_metrics('saved/metrics.pkl', metrics)
+
+        model.train()
+
+
 
 
 def cli_main():
