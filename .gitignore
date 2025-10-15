@@ -3,6 +3,7 @@
 /figures
 /log
 /prebert
+/dump
 __pycache__
 *.zip
 *.log
