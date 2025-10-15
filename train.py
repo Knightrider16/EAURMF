@@ -46,7 +46,7 @@ def get_args(parser):
     parser.add_argument("--lr", type=float, default=5e-05)
     parser.add_argument("--lr_factor", type=float, default=0.5)
     parser.add_argument("--lr_patience", type=int, default=2)
-    parser.add_argument("--max_epochs", type=int, default=100)
+    parser.add_argument("--max_epochs", type=int, default=15)
     parser.add_argument("--max_seq_len", type=int, default=512)
     parser.add_argument("--model", type=str, default="latefusion", choices=["bow", "img", "bert", "concatbow", "concatbert", "mmbt","latefusion"])
     parser.add_argument("--n_workers", type=int, default=4)
@@ -65,6 +65,7 @@ def get_args(parser):
     parser.add_argument("--modulation_starts", type=int, default=5)
     parser.add_argument("--modulation_ends", type=int, default=100)
     parser.add_argument("--zeta", type=float, default=0.01)
+    parser.add_argument("--test", action="store_true", help="Run in test mode")
 
 
 
@@ -284,11 +285,13 @@ def train(args):
             log_metrics(f"Test - {test_name}", test_metrics, args, logger)
 
         losses.append(((np.mean(train_losses), train_acc), (metrics['loss'], metrics['acc']), (test_metrics['loss'], test_metrics['acc'])))
-        print("test", losses[0])
+        print("test", losses[len(losses) - 1])
 
         save_metrics('saved/metrics.pkl', losses)
 
         model.train()
+
+    model.save('saved')
 
 
 
@@ -298,6 +301,15 @@ def cli_main():
     get_args(parser)
     args, remaining_args = parser.parse_known_args()
     assert remaining_args == [], remaining_args
+
+    if (args.test):
+        train_loader, val_loader, test_loaders = get_data_loaders(args)
+
+        model = get_model(args)
+        model.save('saved')
+        print("test finished")
+        return
+    
     train(args)
 
 

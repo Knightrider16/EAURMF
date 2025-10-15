@@ -1,16 +1,7 @@
-#!/usr/bin/env python3
-#
-# Copyright (c) Facebook, Inc. and its affiliates.
-# All rights reserved.
-#
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-#
-
 import torch
 import torch.nn as nn
 
-from attention import ChannelGate
+from models.attention import ChannelGate
 from models.bert import BertEncoder,BertClf
 from models.image import ImageEncoder,ImageClf
 from util import cog_uncertainty_normal, cog_uncertainty_sample, con_loss
@@ -34,11 +25,17 @@ class MultimodalLateFusionClf(nn.Module):
 
         self.fusion = ChannelGate(2, 'avg')
         self.txtclf = BertClf(args)
-        self.imgclf= ImageClf(args)
-        self.mu=nn.Linear(128,128)
-        self.logvar=nn.Linear(128,128)
-        self.IB_classfier=nn.Linear(128,3)
-        self.fc_fusion1=nn.Sequential(nn.Linear(128,3))      
+        self.imgclf = ImageClf(args)
+        self.mu = nn.Linear(128,128)
+        self.logvar = nn.Linear(128,128)
+        self.IB_classfier = nn.Linear(128,3)
+        self.fc_fusion1 = nn.Sequential(
+            nn.Linear(128, 64),
+            nn.BatchNorm1d(64),
+            nn.ReLU(),
+            nn.Dropout(p=0.211),
+            nn.Linear(64, 3)
+        )      
         
 
     def forward(self, txt, mask, segment, img):
@@ -106,3 +103,7 @@ class MultimodalLateFusionClf(nn.Module):
 
 
         return [txt_img_out,txt_out,img_out,txt_mu,txt_logvar,img_mu,img_logvar,mu,logvar,z,cog_uncertainty_dict] 
+    
+
+    def save(self, path):
+        torch.save(self.state_dict(), f"{path}/late_fusion.pth")
