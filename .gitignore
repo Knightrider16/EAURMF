@@ -1,5 +1,5 @@
 /datasets
-/saved
+/saved/MVSA_Single
 /figures
 /log
 /prebert
@@ -7,4 +7,4 @@
 __pycache__
 *.zip
 *.log
-*.pkl
+/saved/late_fusion.pth
