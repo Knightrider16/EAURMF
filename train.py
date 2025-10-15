@@ -286,7 +286,7 @@ def train(args):
         losses.append(((np.mean(train_losses), train_acc), (metrics['loss'], metrics['acc']), (test_metrics['loss'], test_metrics['acc'])))
         print("test", losses[0])
 
-        save_metrics('saved/metrics.pkl', metrics)
+        save_metrics('saved/metrics.pkl', losses)
 
         model.train()
 
