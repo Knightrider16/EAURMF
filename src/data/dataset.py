@@ -1,12 +1,3 @@
-#!/usr/bin/env python3
-#
-# Copyright (c) Facebook, Inc. and its affiliates.
-# All rights reserved.
-#
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-#
-
 import json
 import numpy as np
 import os
@@ -118,11 +109,6 @@ class JsonlDataset(Dataset):
 
 class AddGaussianNoise(object):
 
-    '''
-    mean:均值
-    variance：方差
-    amplitude：幅值
-    '''
     def __init__(self, mean=0.0, variance=1.0, amplitude=1.0):
 
         self.mean = mean
