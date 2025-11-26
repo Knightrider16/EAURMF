@@ -13,10 +13,10 @@ from sklearn.metrics import f1_score, accuracy_score
 from tqdm import tqdm
 
 
-from losses import multimodalloss, con_loss, KL_regular
+from losses import multimodalloss_js, multimodalloss, multimodal_wasserstein, multimodalloss_mmd, con_loss, KL_regular
 from src.data.helpers import get_data_loaders
 from src.models import get_model
-from src.utils.utils import set_seed, save_metrics, autodetect_device
+from src.utils.utils import set_seed, autodetect_device
 from src.utils.config import Config
 from src.utils.checkpoint import CheckpointManager
 
@@ -62,6 +62,7 @@ parser.add_argument("--log_marker", type=str, default='')
 parser.add_argument("--modulation_starts", type=int, default=5)
 parser.add_argument("--modulation_ends", type=int, default=100)
 parser.add_argument("--zeta", type=float, default=0.01)
+parser.add_argument("--loss", type=str, default='default')
 parser.add_argument("--debug", action="store_true", help="Run in debug mode")
 
 
@@ -79,6 +80,16 @@ if not root_logger.handlers:
         handlers=[logging.StreamHandler()],
     )
 logger = logging.getLogger(__name__)
+
+
+losses_map = {
+    'mmd': multimodalloss_mmd,
+    'default': multimodalloss,
+    'wasserstein': multimodal_wasserstein,
+    'js': multimodalloss_js
+}
+
+mmloss = losses_map[args.loss]
 
 def get_criterion(args):
 
@@ -140,9 +151,16 @@ def model_forward(model, batch, mode=None):
     tgt = tgt.to(device)
 
     conloss = con_loss(txt_mu,torch.exp(txt_logvar),img_mu,torch.exp(img_logvar))
-    loss = multimodalloss(
+    loss = mmloss(
         txt_img_logits, 
-        txt_logits, tgt, img_logits, txt_mu, txt_logvar,img_mu,img_logvar,mu,logvar,z)
+        txt_logits, 
+        tgt, 
+        img_logits, 
+        txt_mu, txt_logvar,
+        img_mu, img_logvar,
+        mu, logvar,
+        z
+    )
     loss += 1e-5 * KL_regular(txt_mu, txt_logvar, img_mu, img_logvar) + conloss * 1e-3
 
     return loss, txt_img_logits, tgt, cog_un
@@ -170,6 +188,9 @@ def train(args):
     for eachArg, value in argsDict.items():
         logger.info('{}:{}'.format(eachArg, value))
     logger.info("==============================================")
+    logger.info(f"Using {args.loss} multimodal loss function {mmloss}")
+    logger.info("==============================================")
+    
 
     model.to(device)
 
@@ -181,14 +202,13 @@ def train(args):
 
 
     logger.info("Training..")
-
-    losses = []
+    
 
     for i_epoch in range(start_epoch, args.max_epochs):
         logger.info(f"epoch {i_epoch + 1}/{args.max_epochs}")
         train_losses = []
         model.train()
-        optimizer.zero_grad()
+        # optimizer.zero_grad()
         preds, tgts = [], []
         
         for batch in tqdm(train_loader, total=len(train_loader)):
@@ -231,6 +251,8 @@ def train(args):
         ## validation
         model.eval()
         val_metrics = model_eval(val_loader, model)
+        
+        scheduler.step((val_metrics['acc']))
 
         # Testing
         model.eval()
@@ -256,6 +278,7 @@ def train(args):
             'epoch': i_epoch + 1,
             'model_state_dict': model.state_dict() if i_epoch + 1 == args.max_epochs else None,
             'optimizer_state_dict':  optimizer.state_dict() if i_epoch + 1 == args.max_epochs else None,
+            'scheduler_state_dict': scheduler.state_dict() if i_epoch + 1 == args.max_epochs else None,
             'metrics': metrics
         }
         
