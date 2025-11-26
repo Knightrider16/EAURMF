@@ -2,9 +2,9 @@ import torch
 import torch.nn as nn
 
 from models.attention import ChannelGate
-from models.bert import BertEncoder,BertClf
-from models.image import ImageEncoder,ImageClf
-from util import cog_uncertainty_normal, cog_uncertainty_sample, con_loss
+from models.bert import BertEncoder, BertClf
+from models.image import ImageEncoder, ImageClf
+from losses import cog_uncertainty_normal, cog_uncertainty_sample, con_loss
 
 
 
