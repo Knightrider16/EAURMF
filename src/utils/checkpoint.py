@@ -4,8 +4,9 @@ import logging
 import torch
 import json
 from datetime import datetime, timezone, timedelta
-from utils.utils import autodetect_device
-from utils.config import Config
+from src.utils.utils import autodetect_device
+from src.utils.config import Config
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,7 @@ class CheckpointManager:
         timestamp = datetime.now(IST).strftime('%d-%m-%Y_%H-%M-%S')
         
         self.checkpoint_dir = os.path.join(config.checkpoint_dir, timestamp)
+        config.checkpoint_dir = self.checkpoint_dir
         
         
         logger.info(f"Creating checkpoint directory at {self.checkpoint_dir}")
@@ -33,10 +35,36 @@ class CheckpointManager:
         
         
     @staticmethod
-    def load(checkpoint_path):
-        if not os.path.exists(checkpoint_path):
-            raise FileNotFoundError(f"Checkpoint directory {checkpoint_path} not found")
-    
-        checkpoint_data = torch.load(checkpoint_path, weights_only=True, map_location=autodetect_device)
+    def load(checkpoint_dir, file_name=None, metrics_only=False):
+        device = autodetect_device()
+        checkpoint_data = None
         
+        if not os.path.exists(checkpoint_dir):
+            raise FileNotFoundError(f"Checkpoint directory {checkpoint_dir} not found")
+        
+        if file_name:
+            file_path = os.path.join(checkpoint_dir, file_name)
+            if not os.path.exists(file_path):
+                raise FileNotFoundError(f"Checkpoint file {file_path} not found")
+        
+    
+                checkpoint_data = torch.load(file_path, weights_only=True, map_location=device)
+
+                if metrics_only:
+                    checkpoint_data = checkpoint_data['metrics']
+        else:
+            checkpoint_data = []
+            folder = Path(checkpoint_dir)
+            files = [p for p in folder.iterdir() if p.suffix in [".pt", ".pth"]]
+                
+            for i, file in enumerate(files):
+                print(f"Loading checkpoint no. {i + 1}")
+                data = torch.load(file, weights_only=False, map_location=device)
+                
+                if metrics_only:
+                    data = data['metrics']
+                checkpoint_data.append(data)
+        
+                
         return checkpoint_data
+    

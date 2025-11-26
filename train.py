@@ -254,8 +254,8 @@ def train(args):
 
         checkpoint_data = {
             'epoch': i_epoch + 1,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
+            'model_state_dict': model.state_dict() if i_epoch + 1 == args.max_epochs else None,
+            'optimizer_state_dict':  optimizer.state_dict() if i_epoch + 1 == args.max_epochs else None,
             'metrics': metrics
         }
         
