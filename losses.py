@@ -71,6 +71,78 @@ def wasserstein_distance(mu1, logvar1, mu2, logvar2):
     
     return (mean_diff + var_diff).mean()
 
+
+def JS_divergence(mu1, logvar1, mu2, logvar2):
+    """
+    Jensen-Shannon divergence between two Gaussian distributions.
+    
+    JS divergence is symmetric and bounded [0, log(2)], making it more stable than KL.
+    JS(P||Q) = 0.5 * KL(P||M) + 0.5 * KL(Q||M), where M = 0.5 * (P + Q)
+    
+    Args:
+        mu1, logvar1: mean and log-variance of first distribution
+        mu2, logvar2: mean and log-variance of second distribution
+    """
+    var1 = torch.exp(logvar1)
+    var2 = torch.exp(logvar2)
+    
+    # Mixture distribution parameters (average of the two Gaussians)
+    mu_m = 0.5 * (mu1 + mu2)
+    var_m = 0.5 * (var1 + var2 + mu1**2 + mu2**2) - mu_m**2
+    logvar_m = torch.log(var_m + 1e-8)  # Add epsilon for numerical stability
+    
+    # KL(P||M)
+    kl_p_m = 0.5 * (logvar_m - logvar1 + (var1 + (mu1 - mu_m)**2) / (var_m + 1e-8) - 1)
+    
+    # KL(Q||M)
+    kl_q_m = 0.5 * (logvar_m - logvar2 + (var2 + (mu2 - mu_m)**2) / (var_m + 1e-8) - 1)
+    
+    # JS divergence
+    js_div = 0.5 * (kl_p_m + kl_q_m)
+    
+    return js_div.sum(dim=1).mean()
+
+
+def multimodalloss_js(
+        txt_img_logits, 
+        txt_logits, 
+        tgt,
+        img_logits,
+        txt_mu, txt_logvar,
+        img_mu, img_logvar,
+        mu, logvar, 
+        z    
+    ):
+    """
+    Multimodal loss function with Jensen-Shannon divergence for cross-modal alignment.
+    
+    Uses JS divergence instead of KL for more stable training and symmetric distance.
+    """
+    
+    # Standard KL divergence losses (regularization to prior N(0,1))
+    txt_kl_loss = KL_normal(txt_mu, txt_logvar)
+    img_kl_loss = KL_normal(img_mu, img_logvar)
+    fusion_kl_loss = KL_normal(mu, logvar)
+
+    # Jensen-Shannon divergence for cross-modal alignment (text vs image)
+    js_loss = JS_divergence(txt_mu, txt_logvar, img_mu, img_logvar)
+
+    # Classification losses
+    IB_loss = F.cross_entropy(z, tgt)
+    fusion_cls_loss = F.cross_entropy(txt_img_logits, tgt)
+
+    # Combined loss with JS divergence for cross-modal alignment
+    total_loss = (
+        fusion_cls_loss +
+        1e-3 * fusion_kl_loss +
+        1e-3 * txt_kl_loss +
+        1e-3 * img_kl_loss +
+        1e-3 * IB_loss +
+        1e-2 * js_loss  # JS divergence weight - adjust as needed
+    )
+
+    return total_loss
+
 def multimodal_wasserstein(
         txt_img_logits, 
         txt_logits, 
@@ -111,6 +183,51 @@ def multimodal_wasserstein(
                   1e-3 * IB_loss +
                   1e-2 * cross_modal_loss)  # Adjust weight as needed
     
+    return total_loss
+
+def multimodalloss_mmd(
+        txt_img_logits, 
+        txt_logits, 
+        tgt,
+        img_logits,
+        txt_mu, txt_logvar,
+        img_mu, img_logvar,
+        mu, logvar, 
+        z    
+    ):
+    """
+    Multimodal loss function with MMD for cross-modal alignment.
+    
+    Uses Maximum Mean Discrepancy (MMD) to align the distributions of 
+    text and image latent representations.
+    """
+    
+    # Standard KL divergence losses for regularization
+    txt_kl_loss = KL_normal(txt_mu, txt_logvar)
+    img_kl_loss = KL_normal(img_mu, img_logvar)
+    fusion_kl_loss = KL_normal(mu, logvar)
+
+    # Sample from the latent distributions for MMD computation
+    txt_z = reparameterise(txt_mu, torch.exp(0.5 * txt_logvar))
+    img_z = reparameterise(img_mu, torch.exp(0.5 * img_logvar))
+    
+    # MMD loss for cross-modal alignment
+    mmd_loss = MMD_loss(txt_z, img_z)
+
+    # Classification losses
+    IB_loss = F.cross_entropy(z, tgt)
+    fusion_cls_loss = F.cross_entropy(txt_img_logits, tgt)
+
+    # Combined loss with MMD for cross-modal distribution matching
+    total_loss = (
+        fusion_cls_loss +
+        1e-3 * fusion_kl_loss +
+        1e-3 * txt_kl_loss +
+        1e-3 * img_kl_loss +
+        1e-3 * IB_loss +
+        1e-2 * mmd_loss  # MMD weight - adjust as needed
+    )
+
     return total_loss
 
 
