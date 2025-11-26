@@ -1,20 +1,21 @@
-
+import os
 import argparse
-from sklearn.metrics import f1_score, accuracy_score
-from tqdm import tqdm
-import pickle as pkl
-
 import torch
+import pickle as pkl
+import numpy as np
 import torch.nn as nn
 import torch.optim as optim
 
+from sklearn.metrics import f1_score, accuracy_score
+from tqdm import tqdm
+
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-from util import totolloss, con_loss, KL_regular
+from util import totolloss, con_loss, KL_regular, totolloss_improved
 from src.data.helpers import get_data_loaders
 from src.models import get_model
 from src.utils.logger import create_logger
-from src.utils.utils import *
+from src.utils.utils import set_seed, log_metrics, save_metrics, save_checkpoint
 
 import time
 
@@ -81,7 +82,7 @@ def get_scheduler(optimizer, args):
 
 
 
-def model_eval(i_epoch, data, model, args, criterion, store_preds=False):
+def model_eval(i_epoch, data, model, args, criterion):
     with torch.no_grad():
         losses, preds, tgts = [], [], []
         for batch in data:
@@ -105,18 +106,15 @@ def model_eval(i_epoch, data, model, args, criterion, store_preds=False):
     metrics["micro_f1"] = f1_score(tgts, preds, average="weighted")
 
 
-    if store_preds:
-        store_preds_to_disk(tgts, preds, args)
-
     return metrics
 
 
-def model_forward(i_epoch, model, args, criterion, batch,txt_history=None,img_history=None,mode='eval'):
+def model_forward(i_epoch, model, args, criterion, batch):
     txt, segment, mask, img, tgt,idx = batch
     # print(txt)
     # print(img)
-    freeze_img = i_epoch < args.freeze_img
-    freeze_txt = i_epoch < args.freeze_txt
+    # freeze_img = i_epoch < args.freeze_img
+    # freeze_txt = i_epoch < args.freeze_txt
 
     txt, img = txt.to(device), img.to(device)
     mask, segment = mask.to(device), segment.to(device)
@@ -128,7 +126,7 @@ def model_forward(i_epoch, model, args, criterion, batch,txt_history=None,img_hi
     # loss = criterion(out, tgt)
 
     conloss=con_loss(txt_mu,torch.exp(txt_logvar),img_mu,torch.exp(img_logvar))
-    loss=totolloss(txt_img_logits, txt_logits,tgt,img_logits,txt_mu,txt_logvar,img_mu,img_logvar,mu,logvar,z)
+    loss=totolloss_improved(txt_img_logits, txt_logits,tgt,img_logits,txt_mu,txt_logvar,img_mu,img_logvar,mu,logvar,z)
     loss=loss+1e-5*KL_regular(txt_mu,txt_logvar,img_mu,img_logvar)+conloss*1e-3
     # loss=loss+0.01*conloss
 
@@ -200,7 +198,7 @@ def train(args):
         preds, tgts = [], []
         for batch in tqdm(train_loader,total=len(train_loader)):
         # for batch in train_loader:
-            loss, out, tgt, cog_uncertainty_dict = model_forward(i_epoch, model, args, criterion, batch,txt_history,img_history,mode='train')
+            loss, out, tgt, cog_uncertainty_dict = model_forward(i_epoch, model, args, criterion, batch)
             train_losses.append(loss.item())
 
 
