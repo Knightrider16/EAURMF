@@ -2,28 +2,39 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-class Contrastive_loss(nn.Module):
-    def __init__(self,tau):
-        super(Contrastive_loss,self).__init__()
-        self.tau=tau
 
-    def sim(self,z1:torch.Tensor,z2:torch.Tensor):
+class Contrastive_loss(nn.Module):
+    def __init__(self, tau):
+        super(Contrastive_loss,self).__init__()
+        self.tau = tau
+
+    def sim(self, z1: torch.Tensor, z2: torch.Tensor):
+        # Compute cosine similarity between Samples
         z1 = F.normalize(z1)
         z2 = F.normalize(z2)
-        return torch.mm(z1,z2.t())
+        return torch.mm(z1, z2.t())
     
-    def semi_loss(self,z1:torch.Tensor,z2:torch.Tensor):
-        f=lambda x: torch.exp(x/self.tau)
-        refl_sim = f(self.sim(z1,z2))
-        between_sim=f(self.sim(z1,z2))
+    def semi_loss(self, z1: torch.Tensor, z2: torch.Tensor):
+        f = lambda x: torch.exp(x / self.tau)
+        
+        # checking, may break
+        # reflection similarity (similarity between same modality)
+        # FIXED: corrected sim(z1, z2) -> (z1, z1)
+        refl_sim = f(self.sim(z1, z1))
+        
+        # similarity between different modalities
+        between_sim = f(self.sim(z1, z2))
+        
+        # infoNCE loss
+        ince_loss = -torch.log(between_sim.diag() / (refl_sim.sum(1) + between_sim.sum(1) - refl_sim.diag()))
 
-        return -torch.log(between_sim.diag()/(refl_sim.sum(1)+between_sim.sum(1)-refl_sim.diag()))
-    
-    def forward(self,z1:torch.Tensor,z2:torch.Tensor,mean:bool=True):
-        l1=self.semi_loss(z1,z2)
-        l2=self.semi_loss(z2,z1)
-        ret=(l1+l2)*0.5
-        ret=ret.mean() if mean else ret.sum()
+        return ince_loss
+
+    def forward(self, z1: torch.Tensor, z2: torch.Tensor, mean: bool=True):
+        l1 = self.semi_loss(z1,z2)
+        l2 = self.semi_loss(z2,z1)
+        ret = (l1 + l2) * 0.5
+        ret = ret.mean() if mean else ret.sum()
         return ret
     
 def gaussian_kernel(x, y, kernel_mul=2.0, kernel_num=5, fix_sigma=None):
@@ -60,8 +71,16 @@ def wasserstein_distance(mu1, logvar1, mu2, logvar2):
     
     return (mean_diff + var_diff).mean()
 
-def totolloss_improved(txt_img_logits, txt_logits, tgt, img_logits, 
-                       txt_mu, txt_logvar, img_mu, img_logvar, mu, logvar, z):
+def multimodal_wasserstein(
+        txt_img_logits, 
+        txt_logits, 
+        tgt, 
+        img_logits, 
+        txt_mu, txt_logvar, 
+        img_mu, img_logvar, 
+        mu, logvar, 
+        z
+    ):
     
     # Standard KL losses
     txt_kl_loss = KL_normal(txt_mu, txt_logvar)
@@ -95,12 +114,16 @@ def totolloss_improved(txt_img_logits, txt_logits, tgt, img_logits,
     return total_loss
 
 
-def totolloss(txt_img_logits, txt_logits, tgt,
-              img_logits,
-              txt_mu, txt_logvar,
-              img_mu, img_logvar,
-              mu, logvar, z,
-              use_mmd=True, mmd_weight=1e-3):
+def multimodalloss(
+        txt_img_logits, 
+        txt_logits, 
+        tgt,
+        img_logits,
+        txt_mu, txt_logvar,
+        img_mu, img_logvar,
+        mu, logvar, 
+        z    
+    ):
 
     txt_kl_loss = KL_normal(txt_mu, txt_logvar)
     img_kl_loss = KL_normal(img_mu, img_logvar)
@@ -117,18 +140,6 @@ def totolloss(txt_img_logits, txt_logits, tgt,
         1e-3 * IB_loss
     )
 
-    # -------------------------------
-    # NEW → add MMD between modalities
-    # -------------------------------
-    if use_mmd:
-        txt_std = torch.exp(0.5 * txt_logvar)
-        img_std = torch.exp(0.5 * img_logvar)
-
-        txt_z = reparameterise(txt_mu, txt_std)
-        img_z = reparameterise(img_mu, img_std)
-
-        mmd = MMD_loss(txt_z, img_z)
-        total_loss += mmd_weight * mmd
 
     return total_loss
 
@@ -137,42 +148,45 @@ def KL_normal(mu, logvar):
     kl_loss = -(1 + logvar - mu.pow(2) - logvar.exp()) / 2  
     return kl_loss.sum(dim=1).mean()
 
-def KL_regular(mu_1,logvar_1,mu_2,logvar_2):
-    var_1=torch.exp(logvar_1)
-    var_2=torch.exp(logvar_2)
-    KL_loss=logvar_2-logvar_1+((var_1.pow(2)+(mu_1-mu_2).pow(2))/(2*var_2.pow(2)))-0.5
-    KL_loss=KL_loss.sum(dim=1).mean()
+def KL_regular(mu_1, logvar_1, mu_2, logvar_2):
+    var_1 = torch.exp(logvar_1)
+    var_2 = torch.exp(logvar_2)
+    KL_loss = logvar_2 - logvar_1 + ((var_1.pow(2) + (mu_1-mu_2).pow(2)) / (2 * var_2.pow(2))) - 0.5
+    KL_loss = KL_loss.sum(dim=1).mean()
     return KL_loss
 
 def reparameterise(mu, std):
     """
-    mu : [batch_size,z_dim]
-    std : [batch_size,z_dim]        
+        mu : [batch_size,z_dim]
+        std : [batch_size,z_dim]        
     """        
     # get epsilon from standard normal
-    eps = torch.randn_like(std)
-    return mu + std*eps
+    eps = torch.randn_like(std) # x != y from random sample
+    return mu + std * eps
 
-def con_loss(txt_mu,txt_logvar,img_mu,img_logvar):
-    Conloss=Contrastive_loss(0.5)
-    while True:
-        t_z1 = reparameterise(txt_mu, txt_logvar)
-        t_z2 = reparameterise(txt_mu, txt_logvar)
+def con_loss(txt_mu, txt_logvar, img_mu, img_logvar):
+    """
+        Contrastive loss encourages consistency within each modality by making different
+        samples from same distribution similar to each other
+        (positive -> positive sim high)
+        (positive -> negative sim low, this becomes the case intrinsically)
         
-        if not np.array_equal(t_z1, t_z2):
-            break 
-    while True:
-        i_z1=reparameterise(img_mu,img_logvar)
-        i_z2=reparameterise(img_mu,img_logvar)
-        
-        if not np.array_equal(t_z1, t_z2):
-            break 
+        FIXED: removed while loop
+    """
+    Conloss = Contrastive_loss(0.5)
 
-
-    loss_t=Conloss(t_z1,t_z2)
-    loss_i=Conloss(i_z1,i_z2)
+    t_z1 = reparameterise(txt_mu, txt_logvar)
+    t_z2 = reparameterise(txt_mu, txt_logvar)
     
-    return loss_t+loss_i
+    i_z1 = reparameterise(img_mu,img_logvar)
+    i_z2 = reparameterise(img_mu,img_logvar)
+
+
+
+    loss_t = Conloss(t_z1, t_z2)
+    loss_i = Conloss(i_z1, i_z2)
+    
+    return loss_t + loss_i
 
 def cog_uncertainty_sample(mu_l, var_l, mu_v, var_v, sample_times=10):
 
